@@ -58,7 +58,9 @@ void opencl_array::setup_context(void){
 
   // make a program
   // TO DO, CHANGE THIS FILE
-  std::string program_name = "/cis/home/dtward/Documents/OpenCL/OpenCL/opencl_array.cl";
+  std::string program_name;
+  program_name = "/cis/home/dtward/Documents/OpenCL/OpenCL/opencl_array.cl";
+  program_name = "/home/dtward/Documents/Coding/OpenCL/OpenCL/opencl_array.cl";
   std::cout << "building program " << program_name << std::endl;
   std::ifstream program_file(program_name.c_str());
   if (!program_file.is_open()) throw std::runtime_error("could not open source file");
