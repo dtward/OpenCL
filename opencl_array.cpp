@@ -17,11 +17,12 @@ cl::CommandQueue opencl_array::queue;
 cl::Program opencl_array::program;
 
 void opencl_array::setup_context(void){
-  std::cout << "in setup_context" << std::endl;
+  //std::cout << "in setup_context" << std::endl;
   if (initialized){
-    std::cout << "context already initialized" << std::endl;
+    //std::cout << "context already initialized" << std::endl;
     return;
   }
+  std::cout << "setting up context" << std::endl;
 
   // query platforms
   int err;
@@ -29,7 +30,7 @@ void opencl_array::setup_context(void){
   err = cl::Platform::get(&platforms);
   if (err != CL_SUCCESS) throw std::runtime_error("could not get OpenCL platforms");
   std::cout << "listing platforms" << std::endl;
-  for (std::vector<cl::Platform>::iterator it = platforms.begin(); it != platforms.end(); ++it){
+  for (std::vector<cl::Platform>::const_iterator it = platforms.begin(); it != platforms.end(); ++it){
     std::cout << "Platform: " << it->getInfo<CL_PLATFORM_NAME>(&err) << std::endl;
     if (err != CL_SUCCESS) throw std::runtime_error("could not get OpenCL platform name");
 
@@ -48,7 +49,7 @@ void opencl_array::setup_context(void){
   err = context.getInfo(CL_CONTEXT_DEVICES, &devices);
   if (err != CL_SUCCESS) throw std::runtime_error("could not get OpenCL devices");
   std::cout << "listing devices" << std::endl;
-  for (std::vector<cl::Device>::iterator it = devices.begin(); it != devices.end(); ++it){
+  for (std::vector<cl::Device>::const_iterator it = devices.begin(); it != devices.end(); ++it){
     std::cout << "Device: " << it->getInfo<CL_DEVICE_NAME>(&err) << std::endl;
     if (err != CL_SUCCESS) throw std::runtime_error("could not get OpenCL device name");
   }
@@ -61,6 +62,7 @@ void opencl_array::setup_context(void){
   std::string program_name;
   program_name = "/cis/home/dtward/Documents/OpenCL/OpenCL/opencl_array.cl";
   program_name = "/home/dtward/Documents/Coding/OpenCL/OpenCL/opencl_array.cl";
+  program_name = "../OpenCL/opencl_array.cl"; // this will be better, but still needs to be fixed
   std::cout << "building program " << program_name << std::endl;
   std::ifstream program_file(program_name.c_str());
   if (!program_file.is_open()) throw std::runtime_error("could not open source file");
@@ -89,11 +91,16 @@ void opencl_array::setup_context(void){
 }
 
 
-
+void opencl_array::set_n(int n_in){
+  n = n_in;
+  offset = cl::NDRange(0);
+  global = cl::NDRange(n);
+  local = cl::NullRange;
+}
 
 opencl_array::opencl_array(void){
   setup_context();
-  n = 0;
+  set_n(0);
 }
 
 void opencl_array::setup_buffer(void){
@@ -115,7 +122,7 @@ opencl_array::opencl_array(int m){
 
 
 void opencl_array::set(const std::vector<double> & v) {
-  n = v.size();
+  set_n(v.size());
   int err;
   err = queue.enqueueWriteBuffer(buffer,
 				 CL_TRUE, // blocking
@@ -127,20 +134,24 @@ void opencl_array::set(const std::vector<double> & v) {
 				 );
   if (err != CL_SUCCESS) throw std::runtime_error("could not set buffer");
 }
-
 opencl_array::opencl_array(int m, double const * const v){
   setup_context();
-  n = m;
+  set_n(m);
   setup_buffer();
   std::vector<double> vvec(v,v+m); // need to double check
   set(vvec);
 }
-
 opencl_array::opencl_array(const std::vector<double> & v){
   setup_context();
-  n = v.size();
+  set_n(v.size());
   setup_buffer();
   set(v);
+}
+opencl_array::opencl_array(int n, double a){
+  setup_context();
+  set_n(n);
+  setup_buffer();
+  set(std::vector<double>(n,a));
 }
 
 std::vector<double> opencl_array::get(void) const {
@@ -158,27 +169,112 @@ std::vector<double> opencl_array::get(void) const {
   return out;
 }
 
-void opencl_array::operator+=(const opencl_array & b){
+opencl_array & opencl_array::compound_assignment(const std::string & name, const opencl_array & b){
   int err;
-  cl::Kernel kernel(program, "unary_plus", &err);
-  if (err != CL_SUCCESS) throw std::runtime_error("could not create unary plus kernel");
+  cl::Kernel kernel(program, name.c_str(), &err);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not create " + name + " kernel");
   err = kernel.setArg(0, buffer);
-  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 0 for unary plus");
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 0 for " + name);
   err = kernel.setArg(1, b.buffer);
-  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 1 for unary plus");
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 1 for " + name);
   err = kernel.setArg(2, n);
-  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 2 for unary plus");
-
-  // setup range
-  // TO DO, something better
-  cl::NDRange offset;
-  cl::NDRange local;
-  cl::NDRange global;
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 2 for " + name);
 
   // enqueue
-  //err = queue.enqueueNDRangeKernel(kernel,
-  //				   0,//offset
-  //				   );
-  if (err != CL_SUCCESS) throw std::runtime_error("could not enqueue ndrange kernel for unary plus");
+  err = queue.enqueueNDRangeKernel(kernel,
+  				   offset,//offset
+				   global,
+				   local,
+				   NULL, // events waitlist
+				   NULL // event
+  				   );
+  if (err != CL_SUCCESS) throw std::runtime_error("could not enqueue ndrange kernel for " + name);
+  return *this;
+}
+
+opencl_array & opencl_array::operator+=(const opencl_array & b){
+  return compound_assignment("addition_assignment", b);
+}
+opencl_array &opencl_array::operator-=(const opencl_array & b){
+  return compound_assignment("subtraction_assignment", b);
+}
+opencl_array &opencl_array::operator*=(const opencl_array & b){
+  return compound_assignment("multiplication_assignment", b);
+}
+opencl_array &opencl_array::operator/=(const opencl_array & b){
+  return compound_assignment("division_assignment", b);
+}
+
+// with scalars
+opencl_array & opencl_array::compound_assignment(const std::string & name, double b){
+  int err;
+  cl::Kernel kernel(program, name.c_str(), &err);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not create " + name + " kernel");
+  err = kernel.setArg(0, buffer);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 0 for " + name);
+  err = kernel.setArg(1, b);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 1 for " + name);
+  err = kernel.setArg(2, n);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 2 for " + name);
+
+  // enqueue
+  err = queue.enqueueNDRangeKernel(kernel,
+  				   offset,//offset
+				   global,
+				   local,
+				   NULL, // events waitlist
+				   NULL // event
+  				   );
+  if (err != CL_SUCCESS) throw std::runtime_error("could not enqueue ndrange kernel for " + name);
+  return *this;
+}
+opencl_array & opencl_array::operator+=(double b){
+  return compound_assignment("addition_assignment_scalar", b);
+}
+opencl_array &opencl_array::operator-=(double b){
+  return compound_assignment("subtraction_assignment_scalar", b);
+}
+opencl_array &opencl_array::operator*=(double b){
+  return compound_assignment("multiplication_assignment_scalar", b);
+}
+opencl_array &opencl_array::operator/=(double b){
+  return compound_assignment("division_assignment_scalar", b);
+}
+
+
+// binary operators in terms of compound assignment
+// we need to make a copy, so do it in the argument list
+opencl_array operator+(opencl_array a, const opencl_array & b){
+  a+=b;
+  return a;
+}
+opencl_array operator-(opencl_array a, const opencl_array & b){
+  a-=b;
+  return a;
+}
+opencl_array operator*(opencl_array a, const opencl_array & b){
+  a*=b;
+  return a;
+}
+opencl_array operator/(opencl_array a, const opencl_array & b){
+  a/=b;
+  return a;
+}
+
+// streams
+std::ostream & operator<<(std::ostream & os, const opencl_array & a){
+  std::vector<double> avec = a.get();
+  int n = avec.size();
+  os << "opencl_array(";
+  if (n > 6){
+    os << avec[0] << "," << avec[1] << "," << avec[2] << ",... [" << n << "total]...," << avec[n-3] << "," << avec[n-2] << "," << avec[n-1];
+  } else {
+    for (std::vector<double>::const_iterator it = avec.begin(); it != avec.end(); ++it) {
+      os << *it;
+      if (it != avec.end()-1) os << ",";
+    }
+  }
+  os << ")";
+  return os;
 }
 
