@@ -28,8 +28,8 @@ int main(int argc, char **argv){
 
   // set up these static members
   // TO DO, make sure you don't change them
-  opencl_array::platform_id = 0;
-  opencl_array::device_id = 0;
+  opencl_array::set_platform_id(0);
+  opencl_array::set_device_id(0);
   std::vector<double> avec;
   avec.push_back(1);
   avec.push_back(2);
@@ -67,7 +67,20 @@ int main(int argc, char **argv){
   d /= 2;
   std::cout << "d is " << d << std::endl;
 
+  std::vector<double> xvec;
+  xvec.push_back(0);
+  xvec.push_back(0);
+  xvec.push_back(0);
+  xvec.push_back(1);
+  xvec.push_back(0);
+  xvec.push_back(0);
+  // (0,0,0), (1,0,0)  
+  opencl_array x(xvec);
   
+  a = opencl_array(6,1.0);
+  std::cout << a << std::endl;
   
+  opencl_array out = apply_gaussian_kernel(x,a,x,1.0);
+  std::cout << "after kernel, out is " << out << std::endl;
   return EXIT_SUCCESS;
 }

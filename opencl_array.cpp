@@ -16,6 +16,48 @@ cl::Device opencl_array::device;
 cl::CommandQueue opencl_array::queue;
 cl::Program opencl_array::program;
 
+
+int opencl_array::get_platform_id(void) {
+  return platform_id;
+}
+void opencl_array::set_platform_id(int id){
+  if (initialized){
+    throw std::runtime_error("You cannot change opencl context variables after your arrays are initialized");
+  }
+  platform_id = id;
+}
+const cl::Platform & opencl_array::get_platform(void){
+  return platform;
+}
+
+int opencl_array::get_device_id(void){
+  return device_id;
+}
+void opencl_array::set_device_id(int id){
+  if (initialized){
+    throw std::runtime_error("You cannot change opencl context variables after your arrays are initialized");
+  }
+  device_id = id;
+}
+const cl::Device & opencl_array::get_device(void){
+  return device;
+}
+
+const cl::CommandQueue & opencl_array::get_queue(void){
+  return queue;
+}
+
+const cl::Program & opencl_array::get_program(void){
+  return program;
+}
+
+
+int opencl_array::get_n(void) const {
+  return n;
+}
+
+
+
 void opencl_array::setup_context(void){
   //std::cout << "in setup_context" << std::endl;
   if (initialized){
@@ -98,6 +140,7 @@ void opencl_array::set_n(int n_in){
   local = cl::NullRange;
 }
 
+// default constructor
 opencl_array::opencl_array(void){
   setup_context();
   set_n(0);
@@ -114,18 +157,23 @@ void opencl_array::setup_buffer(void){
   if (err != CL_SUCCESS) throw std::runtime_error("could not create buffer");
 }
 
+const cl::Buffer & opencl_array::get_buffer(void) const {
+  return buffer;
+}
+
+// size constructor, allcate but don't set
 opencl_array::opencl_array(int m){
   setup_context();
-  n = m;
+  set_n(m);
   setup_buffer();
 }
 
 
-void opencl_array::set(const std::vector<double> & v) {
+void opencl_array::set(const std::vector<double> & v, bool blocking) {
   set_n(v.size());
   int err;
   err = queue.enqueueWriteBuffer(buffer,
-				 CL_TRUE, // blocking
+				 blocking, // blocking
 				 0,	  // offset
 				 v.size()*sizeof(double),
 				 &v[0],
@@ -134,6 +182,8 @@ void opencl_array::set(const std::vector<double> & v) {
 				 );
   if (err != CL_SUCCESS) throw std::runtime_error("could not set buffer");
 }
+
+// pointer constructor
 opencl_array::opencl_array(int m, double const * const v){
   setup_context();
   set_n(m);
@@ -141,12 +191,16 @@ opencl_array::opencl_array(int m, double const * const v){
   std::vector<double> vvec(v,v+m); // need to double check
   set(vvec);
 }
+
+// vector constructor
 opencl_array::opencl_array(const std::vector<double> & v){
   setup_context();
   set_n(v.size());
   setup_buffer();
   set(v);
 }
+
+// constant constructor
 opencl_array::opencl_array(int n, double a){
   setup_context();
   set_n(n);
@@ -154,11 +208,11 @@ opencl_array::opencl_array(int n, double a){
   set(std::vector<double>(n,a));
 }
 
-std::vector<double> opencl_array::get(void) const {
+std::vector<double> opencl_array::get(bool blocking) const {
   std::vector<double> out(n);
   int err;
   err = queue.enqueueReadBuffer(buffer,
-				CL_TRUE, // blocking
+				blocking, // blocking
 				0,	 //offset
 				n*sizeof(double),
 				&out[0],
@@ -217,7 +271,7 @@ opencl_array & opencl_array::compound_assignment(const std::string & name, doubl
   err = kernel.setArg(2, n);
   if (err != CL_SUCCESS) throw std::runtime_error("could not set argument 2 for " + name);
 
-  // enqueue
+  // enqueue kernel operators
   err = queue.enqueueNDRangeKernel(kernel,
   				   offset,//offset
 				   global,
@@ -261,6 +315,43 @@ opencl_array operator/(opencl_array a, const opencl_array & b){
   return a;
 }
 
+opencl_array operator+(opencl_array a, double b){
+  a += b;
+  return a;
+}
+opencl_array operator-(opencl_array a, double b){
+  a -= b;
+  return a;
+}
+opencl_array operator*(opencl_array a, double b){
+  a *= b;
+  return a;
+}
+opencl_array operator/(opencl_array a, double b){
+  a /= b;
+  return a;
+}
+
+opencl_array operator+(double a, opencl_array b){
+  b += a;
+  return b;
+}
+opencl_array operator-(double a, opencl_array b){
+  b *= (-1.0);
+  b += a;
+  return b;
+}
+opencl_array operator*(double a, opencl_array b){
+  b *= a;
+  return b;
+}
+opencl_array operator/(double a, const opencl_array & b){
+  opencl_array a_array(b.get_n(),a);
+  a_array /= b;
+  return a_array; // is there a better way?
+}
+
+
 // streams
 std::ostream & operator<<(std::ostream & os, const opencl_array & a){
   std::vector<double> avec = a.get();
@@ -278,3 +369,48 @@ std::ostream & operator<<(std::ostream & os, const opencl_array & a){
   return os;
 }
 
+
+
+// open cl kernels
+opencl_array apply_gaussian_kernel(const opencl_array & x, const opencl_array & p, const opencl_array & y, double sigma){
+  // negative one over 2 sigma squared
+  double noo2sigma2 = -1.0/(2.0*sigma*sigma);
+  // initialize output variable
+  opencl_array v(x.get_n()); // recall that this creates the buffer but doesn't send any data to it
+  int err;
+  std::string name = "apply_gaussian_kernel";
+  cl::Kernel kernel(opencl_array::get_program(), name.c_str(),&err);
+  if (err != CL_SUCCESS) throw std::runtime_error("could not create " + name + "kernel");
+  err = kernel.setArg(0,x.get_buffer());
+  err |= kernel.setArg(1,p.get_buffer());
+  err |= kernel.setArg(2,x.get_n()/3);
+  err |= kernel.setArg(3,3);
+  err |= kernel.setArg(4,y.get_buffer());
+  err |= kernel.setArg(5,v.get_buffer());
+  err |= kernel.setArg(6,y.get_n()/3);
+  err |= kernel.setArg(7,noo2sigma2);
+
+  if (err != CL_SUCCESS) throw std::runtime_error("could not set args for " + name);
+
+
+  // set up range
+  // this is not the usual range
+  cl::NDRange offset = cl::NDRange(0);
+  cl::NDRange global = cl::NDRange(y.get_n()/3); // parallelize over output
+  cl::NDRange local = cl::NullRange;
+
+  // enqueue kernel operators
+  err = opencl_array::get_queue().enqueueNDRangeKernel(kernel,
+  				   offset,//offset
+				   global,
+				   local,
+				   NULL, // events waitlist
+				   NULL // event
+  				   );
+  if (err != CL_SUCCESS) throw std::runtime_error("could not enqueue ndrange kernel for " + name);
+
+
+  
+  // return
+  return v;
+}
