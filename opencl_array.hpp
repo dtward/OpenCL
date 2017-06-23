@@ -122,4 +122,6 @@ std::ostream & operator<<(std::ostream & os, const opencl_array & a);
 // points are stored like x[3*i + j] for j \in \{0,...,2\}
 opencl_array apply_gaussian_kernel(const opencl_array & x, const opencl_array & p, const opencl_array & y, double sigma);
 
+
+
 #endif

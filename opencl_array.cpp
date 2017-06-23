@@ -133,19 +133,6 @@ void opencl_array::setup_context(void){
 }
 
 
-void opencl_array::set_n(int n_in){
-  n = n_in;
-  offset = cl::NDRange(0);
-  global = cl::NDRange(n);
-  local = cl::NullRange;
-}
-
-// default constructor
-opencl_array::opencl_array(void){
-  setup_context();
-  set_n(0);
-}
-
 void opencl_array::setup_buffer(void){
   // set up buffer
   int err;
@@ -157,6 +144,21 @@ void opencl_array::setup_buffer(void){
   if (err != CL_SUCCESS) throw std::runtime_error("could not create buffer");
 }
 
+void opencl_array::set_n(int n_in){
+  n = n_in;
+  offset = cl::NDRange(0);
+  global = cl::NDRange(n);
+  local = cl::NullRange;
+  if (n_in > 0) setup_buffer();
+}
+
+// default constructor
+opencl_array::opencl_array(void){
+  setup_context();
+  set_n(0);
+}
+
+
 const cl::Buffer & opencl_array::get_buffer(void) const {
   return buffer;
 }
@@ -165,7 +167,6 @@ const cl::Buffer & opencl_array::get_buffer(void) const {
 opencl_array::opencl_array(int m){
   setup_context();
   set_n(m);
-  setup_buffer();
 }
 
 
@@ -187,7 +188,6 @@ void opencl_array::set(const std::vector<double> & v, bool blocking) {
 opencl_array::opencl_array(int m, double const * const v){
   setup_context();
   set_n(m);
-  setup_buffer();
   std::vector<double> vvec(v,v+m); // need to double check
   set(vvec);
 }
@@ -196,7 +196,6 @@ opencl_array::opencl_array(int m, double const * const v){
 opencl_array::opencl_array(const std::vector<double> & v){
   setup_context();
   set_n(v.size());
-  setup_buffer();
   set(v);
 }
 
@@ -204,7 +203,6 @@ opencl_array::opencl_array(const std::vector<double> & v){
 opencl_array::opencl_array(int n, double a){
   setup_context();
   set_n(n);
-  setup_buffer();
   set(std::vector<double>(n,a));
 }
 
@@ -371,7 +369,7 @@ std::ostream & operator<<(std::ostream & os, const opencl_array & a){
 
 
 
-// open cl kernels
+// oddmm stuff
 opencl_array apply_gaussian_kernel(const opencl_array & x, const opencl_array & p, const opencl_array & y, double sigma){
   // negative one over 2 sigma squared
   double noo2sigma2 = -1.0/(2.0*sigma*sigma);
